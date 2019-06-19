@@ -1,6 +1,6 @@
 # gcode-enhancer
 
-Improve the G-Code outputted from PCB-GCode extension from Eagle
+Shift GCode coordinates to positive XY-plane and improve generated GCode from pcb-gcode eagle plugin.
 
 ## Problem and solution
 
@@ -23,6 +23,8 @@ The App takes space-seperated filenames as parameter.
 
 It basically shifts the gcode to the other side of the x-axis and removes any X/Y margins. So if you execute it twice, the gcode will land on the other side again :)
 For my usage it's best practice to delete the top-side layout files, which are always generated in my version of the PCB-GCODE script, so be aware that every executed file that is not an bottom-layout will be deleted. You can just comment it out for your purposes.
+
+This App is not tested, has no unit tests and is just a simple script that does it's work.
 
 ## Pre-built
 

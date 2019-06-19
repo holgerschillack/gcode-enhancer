@@ -1,149 +1,148 @@
-﻿using System;
+﻿using Gcode.Utils;
+using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.RegularExpressions;
 
 namespace gcode_enhancer
 {
     internal class Program
     {
+        static double shiftX = 0.0;
+        static double shiftY = 0.0;
+
         private static void Main(string[] args)
         {
-            Console.WriteLine($"Habe {args.Length} Dateipfade erkannt.");
+            Console.WriteLine($"Got {args.Length} file(s).\n");
+
             var fileList = new List<string>();
-            ;
+
             foreach (var arg in args)
             {
                 fileList.Add(arg);
-                Console.WriteLine(arg);
             }
-            ReadInputFiles(fileList);
+
+            ProcessInputFiles(fileList);
+
             Console.ReadLine();
         }
 
-        private static void ReadInputFiles(IEnumerable<string> fileList)
+        private static void ProcessInputFiles(IEnumerable<string> fileList)
         {
-            var minX = 1000.0;
-            var maxX = 0.0;
-            var minY = 1000.0;
-            var maxY = 0.0;
-
+            // looking for milling file to get shift values
             foreach (var file in fileList)
             {
-                if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1) // Found milling file for x,y size shift information
-                {
-                    Console.WriteLine("Milling Datei erkannt!!!\n");
-                    var millFile = cleanMillFile(file);
-                    var i = 0;
-                    foreach (var line in millFile)
-                    {
-                        // check for min/max Y,X
-                        i++;
-                        if (i > 6) // erst ab Zeile 7 überprüfen
-                        {
-                            if (line.IndexOf("X", StringComparison.Ordinal) >= 0 && line.IndexOf("X", StringComparison.Ordinal) >= 0)
-                            {
-                                // found line with X and Y coords, now looking for min/max values
-                                // X
-                                string xPattern = @"[X].?\d?\d?\d?[.]\d{1,}";
-                                Match mX = Regex.Match(line, xPattern, RegexOptions.IgnoreCase);
-                                var xLine = mX.Value;
-                                string xPatternSec = @"\d?\d?\d?[.]\d{1,}";
-                                Match mXSec = Regex.Match(xLine, xPatternSec, RegexOptions.IgnoreCase);
-                                xLine = mXSec.Value;
-
-                                // Y
-                                string yPattern = @"[Y].?\d?\d?\d?[.]\d{1,}";
-                                Match mY = Regex.Match(line, yPattern, RegexOptions.IgnoreCase);
-                                var yLine = mY.Value;
-                                string yPatternSec = @"\d?\d?\d?[.]\d{1,}";
-                                Match mYSec = Regex.Match(yLine, yPatternSec, RegexOptions.IgnoreCase);
-                                yLine = mYSec.Value;
-                                xLine = xLine.Replace(".", ",");
-                                yLine = yLine.Replace(".", ",");
-                                if (Convert.ToDouble(xLine) > maxX) maxX = Convert.ToDouble(xLine);
-                                if (Convert.ToDouble(xLine) < minX) minX = Convert.ToDouble(xLine);
-                                if (Convert.ToDouble(yLine) > maxY) maxY = Convert.ToDouble(yLine);
-                                if (Convert.ToDouble(yLine) < minY) minY = Convert.ToDouble(yLine);
-
-                            }
-                        }
-                    }
-
-                    Console.WriteLine("MIN/MAX-WERTE:");
-                    Console.WriteLine($"\nMIN X: {minX}");
-                    Console.WriteLine($"MIN Y: {minY}");
-                    Console.WriteLine($"MAX X: {maxX}");
-                    Console.WriteLine($"MAX Y: {maxY}\n");
-
-                }
-            }
-
-
-            foreach (var file in fileList) // if maxX, maxY != 0
-            {
-                // MILL FILE
                 if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1)
                 {
-                    Console.WriteLine("Milling Datei...\n");
-                    var newMillFile = cleanMillFile(file);
-
-                    newMillFile = shiftFile(newMillFile, maxX - minX, maxY - minY);
-
-                    Console.WriteLine("NEW MILL FILE: \n");
-                    foreach (var line in newMillFile)
+                    Console.WriteLine($"Found milling file: {file}\n");
+                    var millFile = new List<string>(System.IO.File.ReadAllLines(file));
+                    if (FindMinMax(millFile))
                     {
-                        Console.WriteLine(line);
+                        Console.WriteLine($"SHIFT Values: SHIFT X: {shiftX}, SHIFT Y: {shiftY}\n");
+                        ShiftGCode(fileList);
                     }
-
-                    // Export new milling file
+                    else
+                    {
+                        Console.WriteLine("Could not find MIN/MAX values in milling file. Just cleaning GCode...");
+                    }
                 }
-            }
-
-        }
-
-        private static List<string> cleanMillFile(string file)
-        {
-            var millFile = System.IO.File.ReadAllLines(file);
-            List<string> newMillFile = new List<string>();
-            foreach (var line in millFile)
-            {
-                bool problemFound = false;
-                var newLine = line;
-
-                if (newLine.IndexOf("(", StringComparison.Ordinal) >= 0) problemFound = true;
-                if (newLine.Trim() == "") problemFound = true;
-                if (newLine.IndexOf("M02", StringComparison.Ordinal) >= 0) problemFound = true;
-                if (newLine.IndexOf("M03", StringComparison.Ordinal) >= 0) problemFound = true;
-                if (newLine.IndexOf("M05", StringComparison.Ordinal) >= 0) problemFound = true;
-
-                if (newLine.IndexOf("G00 Z") >= 0) newLine += " F200 ";
-                if (newLine.IndexOf("G00 X") >= 0) newLine += " F1000 ";
-
-                if (!problemFound) newMillFile.Add(newLine);
-            }
-
-            return newMillFile;
-        }
-
-        private static List<string> shiftFile(List<string> data, double X, double Y)
-        {
-            var i = 0;
-            foreach (var line in data)
-            {
-                i++;
-                if (i > 6) // erst ab Zeile 7 überprüfen
+                else if (file.IndexOf(".top.", StringComparison.Ordinal) != -1)
                 {
-                    if (line.IndexOf("X", StringComparison.Ordinal) >= 0 &&
-                        line.IndexOf("X", StringComparison.Ordinal) >= 0)
-                    {
-                        // hier muss X und Y angepasst werden
-
-                    }
+                    System.IO.File.Delete(file); // delete all top layer files, because not needed and prevent accidents
                 }
             }
 
-            return data;
+            CleanGCode(fileList);
+        }
+
+        private static void CleanGCode(IEnumerable<string> fileList)
+        {
+            Console.WriteLine("Cleaning GCode...\n");
+            foreach (var file in fileList)
+            {
+                Console.Write($"{file}...");
+                var gcodeFile = System.IO.File.ReadAllLines(file);
+                List<string> newGcodeFile = new List<string>();
+
+                if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1 || file.IndexOf("bot.etch", StringComparison.Ordinal) != -1 || file.IndexOf("bot.drill", StringComparison.Ordinal) != -1 || file.IndexOf("bot.text", StringComparison.Ordinal) != -1)
+                {
+                    foreach (var line in gcodeFile)
+                    {
+                        bool deleteFlag = false;
+                        var newLine = line;
+
+                        if (newLine.IndexOf("(", StringComparison.Ordinal) >= 0) deleteFlag = true;
+                        if (newLine.Trim() == "") deleteFlag = true;
+                        if (newLine.IndexOf("M02", StringComparison.Ordinal) >= 0) deleteFlag = true;
+                        if (newLine.IndexOf("M03", StringComparison.Ordinal) >= 0) deleteFlag = true;
+                        if (newLine.IndexOf("M05", StringComparison.Ordinal) >= 0) deleteFlag = true;
+
+                        if (newLine.IndexOf("G0 Z") >= 0) newLine += " F200 ";
+                        if (newLine.IndexOf("G0 X") >= 0) newLine += " F1000 ";
+
+                        if (!deleteFlag) newGcodeFile.Add(newLine);
+                    }
+                    var newFileName = System.IO.Path.GetDirectoryName(file) + "\\" + System.IO.Path.GetFileNameWithoutExtension(file) + ".gcode";
+                    
+                    Console.WriteLine(newFileName);
+                    //System.IO.File.Delete(file);
+                    System.IO.File.WriteAllLines(newFileName, newGcodeFile);
+                }
+                Console.Write(" Done.\n");
+            }
+        }
+
+        private static void ShiftGCode(IEnumerable<string> fileList)
+        {
+            Console.WriteLine("Shift GCode Files...\n");
+            foreach (var file in fileList)
+            {
+                Console.Write($"{file}...");
+                var gcodeFile = System.IO.File.ReadAllLines(file);
+                List<string> newGcodeFile = new List<string>();
+
+                for (int i = 0; i < gcodeFile.Length && i < 10; i++) // just copy the first 10 lines
+                {
+                    newGcodeFile.Add(gcodeFile[i]);
+                }
+
+                for (int i = 10; i < gcodeFile.Length; i++)
+                {
+                    var gcodeConverted = GcodeParser.ToGCode(gcodeFile[i]);
+
+                    gcodeConverted.X += shiftX;
+                    gcodeConverted.Y += shiftY;
+
+                    newGcodeFile.Add(gcodeConverted.ToStringCommand());
+                }
+                System.IO.File.WriteAllLines(file, newGcodeFile);
+                Console.Write(" Done.\n");
+            }
+        }
+
+        static bool FindMinMax(List<string> millFile)
+        {
+            List<double> xList = new List<double>();
+            List<double> yList = new List<double>();
+
+            for (int i = 10; i < millFile.Count; i++)
+            {
+                var gcodeConverted = GcodeParser.ToGCode(millFile[i]);
+                if (gcodeConverted.X != null && gcodeConverted.Y != null)
+                {
+                    xList.Add(Convert.ToDouble(gcodeConverted.X));
+                    yList.Add(Convert.ToDouble(gcodeConverted.Y));
+                }
+
+                xList.Sort();
+                yList.Sort();
+
+                if (xList.Count > 1 && yList.Count > 1)
+                {
+                    shiftX = xList[xList.Count - 1] - xList[0];
+                    shiftY = yList[yList.Count - 1] - yList[0];
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

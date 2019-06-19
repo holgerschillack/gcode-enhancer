@@ -6,4 +6,8 @@
     <RootNamespace>gcode_enhancer</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Gcode.Utils" Version="0.2.9" />
+  </ItemGroup>
+
 </Project>

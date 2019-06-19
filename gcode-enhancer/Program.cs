@@ -13,30 +13,49 @@ namespace gcode_enhancer
         {
             Console.WriteLine($"Got {args.Length} file(s).\n");
 
-            var fileList = new List<string>();
-
-            foreach (var arg in args)
+            if (args.Length != 0)
             {
-                fileList.Add(arg);
+                var fileList = new List<string>();
+
+                foreach (var arg in args)
+                {
+                    fileList.Add(arg);
+                }
+
+                ProcessInputFiles(fileList);
             }
 
-            ProcessInputFiles(fileList);
-
-            Console.ReadLine();
+            Console.Write("\nExiting...\n");
         }
 
         private static void ProcessInputFiles(IEnumerable<string> fileList)
         {
-            // looking for milling file to get shift values
+
+            List<string> processFiles = new List<string>();
+
             foreach (var file in fileList)
             {
-                if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1)
+                if (file.IndexOf(".top.", StringComparison.Ordinal) == -1)
                 {
-                    Console.WriteLine($"Found milling file: {file}\n");
+                    processFiles.Add((file));
+                }
+                else
+                {
+                    System.IO.File.Delete(file);
+                }
+            }
+
+            CleanGCode(processFiles);
+
+            foreach (var file in processFiles)
+            {
+                if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1) // looking for milling file to get shift values
+                {
+                    Console.WriteLine($"\nFound milling file: {file}\n");
                     var millFile = new List<string>(System.IO.File.ReadAllLines(file));
                     if (FindMinMax(millFile))
                     {
-                        Console.WriteLine($"SHIFT Values: SHIFT X: {shiftX}, SHIFT Y: {shiftY}\n");
+                        Console.WriteLine($"SHIFT Values: SHIFT X: {Math.Abs(shiftX)}, SHIFT Y: {Math.Abs(shiftY)}\n");
                         ShiftGCode(fileList);
                     }
                     else
@@ -44,13 +63,7 @@ namespace gcode_enhancer
                         Console.WriteLine("Could not find MIN/MAX values in milling file. Just cleaning GCode...");
                     }
                 }
-                else if (file.IndexOf(".top.", StringComparison.Ordinal) != -1)
-                {
-                    System.IO.File.Delete(file); // delete all top layer files, because not needed and prevent accidents
-                }
             }
-
-            CleanGCode(fileList);
         }
 
         private static void CleanGCode(IEnumerable<string> fileList)
@@ -64,27 +77,35 @@ namespace gcode_enhancer
 
                 if (file.IndexOf("bot.mill", StringComparison.Ordinal) != -1 || file.IndexOf("bot.etch", StringComparison.Ordinal) != -1 || file.IndexOf("bot.drill", StringComparison.Ordinal) != -1 || file.IndexOf("bot.text", StringComparison.Ordinal) != -1)
                 {
+                    bool jumpFlag = false;
                     foreach (var line in gcodeFile)
                     {
                         bool deleteFlag = false;
+
                         var newLine = line;
 
                         if (newLine.IndexOf("(", StringComparison.Ordinal) >= 0) deleteFlag = true;
                         if (newLine.Trim() == "") deleteFlag = true;
                         if (newLine.IndexOf("M02", StringComparison.Ordinal) >= 0) deleteFlag = true;
-                        if (newLine.IndexOf("M03", StringComparison.Ordinal) >= 0) deleteFlag = true;
-                        if (newLine.IndexOf("M05", StringComparison.Ordinal) >= 0) deleteFlag = true;
+                        if (newLine.IndexOf("M05", StringComparison.Ordinal) >= 0)
+                        {
+                            deleteFlag = true;
+                            jumpFlag = true;
+                        }
 
-                        if (newLine.IndexOf("G0 Z") >= 0) newLine += " F200 ";
-                        if (newLine.IndexOf("G0 X") >= 0) newLine += " F1000 ";
+                        if (newLine.IndexOf("M03", StringComparison.Ordinal) >= 0)
+                        {
+                            deleteFlag = true;
+                            jumpFlag = false;
+                        }
 
-                        if (!deleteFlag) newGcodeFile.Add(newLine);
+                        if (newLine.IndexOf("G00 Z") >= 0) newLine += " F200 ";
+                        if (newLine.IndexOf("G00 X") >= 0) newLine += " F1000 ";
+
+                        if (!deleteFlag && !jumpFlag) newGcodeFile.Add(newLine);
                     }
-                    var newFileName = System.IO.Path.GetDirectoryName(file) + "\\" + System.IO.Path.GetFileNameWithoutExtension(file) + ".gcode";
-                    
-                    Console.WriteLine(newFileName);
-                    //System.IO.File.Delete(file);
-                    System.IO.File.WriteAllLines(newFileName, newGcodeFile);
+
+                    System.IO.File.WriteAllLines(file, newGcodeFile);
                 }
                 Console.Write(" Done.\n");
             }
@@ -99,17 +120,17 @@ namespace gcode_enhancer
                 var gcodeFile = System.IO.File.ReadAllLines(file);
                 List<string> newGcodeFile = new List<string>();
 
-                for (int i = 0; i < gcodeFile.Length && i < 10; i++) // just copy the first 10 lines
+                for (int i = 0; i < gcodeFile.Length && i < 6; i++) // just copy the first 6 lines
                 {
                     newGcodeFile.Add(gcodeFile[i]);
                 }
 
-                for (int i = 10; i < gcodeFile.Length; i++)
+                for (int i = 6; i < gcodeFile.Length; i++)
                 {
                     var gcodeConverted = GcodeParser.ToGCode(gcodeFile[i]);
 
-                    gcodeConverted.X += shiftX;
-                    gcodeConverted.Y += shiftY;
+                    gcodeConverted.X -= shiftX;
+                    gcodeConverted.Y -= shiftY;
 
                     newGcodeFile.Add(gcodeConverted.ToStringCommand());
                 }
@@ -118,7 +139,7 @@ namespace gcode_enhancer
             }
         }
 
-        static bool FindMinMax(List<string> millFile)
+        private static bool FindMinMax(List<string> millFile)
         {
             List<double> xList = new List<double>();
             List<double> yList = new List<double>();
@@ -131,16 +152,16 @@ namespace gcode_enhancer
                     xList.Add(Convert.ToDouble(gcodeConverted.X));
                     yList.Add(Convert.ToDouble(gcodeConverted.Y));
                 }
+            }
 
-                xList.Sort();
-                yList.Sort();
+            xList.Sort((a, b) => Math.Abs(a).CompareTo(Math.Abs(b)));
+            yList.Sort((a, b) => Math.Abs(a).CompareTo(Math.Abs(b)));
 
-                if (xList.Count > 1 && yList.Count > 1)
-                {
-                    shiftX = xList[xList.Count - 1] - xList[0];
-                    shiftY = yList[yList.Count - 1] - yList[0];
-                    return true;
-                }
+            if (xList.Count > 1 && yList.Count > 1)
+            {
+                shiftX = xList[xList.Count - 1];
+                shiftY = yList[0];
+                return true;
             }
             return false;
         }
